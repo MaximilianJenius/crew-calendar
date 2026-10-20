@@ -1,37 +1,37 @@
-import { db } from "@/lib/supabase/admin";
+import { subDays } from "date-fns";
+import { appName } from "@/lib/config";
 import { buildFeed } from "@/lib/ics";
-import type { EventRow } from "@/lib/types";
+import { db, must } from "@/lib/supabase/admin";
+import { FEED_LOOKBACK_DAYS } from "@/lib/time";
 
 export const dynamic = "force-dynamic";
 
-type Row = EventRow & {
-  event_attendees: { user_id: string; google_event_id: string | null; profiles: { display_name: string } | null }[];
-};
-
 /**
- * Personal calendar feed. /api/feed/<token>.ics has the events you're tagged in;
- * add ?all=1 for every group event. The token is the only secret, so it's long and resettable.
+ * Calendar feeds. /api/feed/<feed_token>.ics has the events you're tagged in; /api/feed/<group_feed_token>.ics
+ * has every group event. The tokens are the only secret, so they're long, separate and resettable.
  */
-export async function GET(req: Request, ctx: RouteContext<"/api/feed/[token]">) {
-  const { token } = await ctx.params;
+export async function GET(_req: Request, ctx: RouteContext<"/api/feed/[token]">) {
+  const token = (await ctx.params).token.replace(/\.ics$/, "");
   const client = db();
-  const { data: me } = await client
-    .from("profiles")
-    .select("id, display_name")
-    .eq("feed_token", token.replace(/\.ics$/, ""))
-    .maybeSingle();
+  const [personal, group] = await Promise.all([
+    client.from("profiles").select("id, display_name").eq("feed_token", token).maybeSingle().then(must),
+    client.from("profiles").select("id, display_name").eq("group_feed_token", token).maybeSingle().then(must),
+  ]);
+  const me = personal ?? group;
   if (!me) return new Response("Not found", { status: 404 });
+  const all = !personal;
 
-  const all = new URL(req.url).searchParams.get("all") === "1";
-  const since = new Date(Date.now() - 60 * 24 * 3600 * 1000).toISOString();
+  const rows = must(
+    await client
+      .from("events")
+      .select(
+        "id, title, notes, location, starts_at, ends_at, all_day, timezone, created_by, event_attendees(user_id, google_event_id, profiles(display_name))",
+      )
+      .gte("ends_at", subDays(new Date(), FEED_LOOKBACK_DAYS).toISOString())
+      .order("starts_at"),
+  );
 
-  const { data: rows } = await client
-    .from("events")
-    .select("*, event_attendees(user_id, google_event_id, profiles(display_name))")
-    .gte("ends_at", since)
-    .order("starts_at");
-
-  const events = ((rows ?? []) as unknown as Row[])
+  const events = rows
     .filter((e) => {
       if (all) return true;
       const mine = e.event_attendees.find((a) => a.user_id === me.id);
@@ -46,8 +46,7 @@ export async function GET(req: Request, ctx: RouteContext<"/api/feed/[token]">) 
         .join(", "),
     }));
 
-  const groupName = process.env.GROUP_NAME ?? "Crew Calendar";
-  const body = buildFeed(all ? groupName : `${groupName} · ${me.display_name}`, events);
+  const body = buildFeed(all ? appName() : `${appName()} · ${me.display_name}`, events);
   return new Response(body, {
     headers: {
       "Content-Type": "text/calendar; charset=utf-8",

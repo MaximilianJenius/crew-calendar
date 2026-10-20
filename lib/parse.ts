@@ -1,33 +1,11 @@
 import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
-import { z } from "zod";
 import { formatInTimeZone } from "date-fns-tz";
+import { ExtractedEvents, MAX_TAGS_PER_EVENT, type MessageImage } from "./schema";
 import type { DraftEvent, Member } from "./types";
 
 const client = new Anthropic();
-
-const ExtractedEvents = z.object({
-  events: z.array(
-    z.object({
-      title: z.string().describe("Short calendar title, e.g. 'Dinner at Jumbo'"),
-      start_local: z
-        .string()
-        .describe("Local start in the poster's timezone: YYYY-MM-DDTHH:mm, or YYYY-MM-DD if all_day"),
-      end_local: z.string().nullable().describe("Local end in the same format, or null if not stated"),
-      all_day: z.boolean(),
-      location: z.string().nullable(),
-      notes: z.string().nullable().describe("Useful details from the message not captured elsewhere"),
-      attendee_handles: z
-        .array(z.string())
-        .describe("Handles (without @) of members this event is for, chosen only from the member list"),
-    }),
-  ),
-  note_to_user: z
-    .string()
-    .nullable()
-    .describe("One short sentence if something was ambiguous and you had to guess, else null"),
-});
 
 const SYSTEM = `You turn chat messages (often copied from WhatsApp or Telegram) into calendar events for a small group of friends.
 
@@ -40,7 +18,19 @@ Rules:
 
 export type ParseResult = { events: DraftEvent[]; note: string | null };
 
-export type MessageImage = { media_type: "image/png" | "image/jpeg" | "image/webp" | "image/gif"; data: string };
+/** Error whose message is safe to show the user. */
+export class ParseError extends Error {}
+
+/**
+ * Coerces the model's local time into what the review form and /api/events expect:
+ * "YYYY-MM-DD" for all-day events, "YYYY-MM-DDTHH:mm" otherwise. Returns null if it isn't a date at all.
+ */
+function toLocal(value: string | null, allDay: boolean): string | null {
+  const m = value ? /^(\d{4}-\d{2}-\d{2})(?:[T ](\d{2}:\d{2}))?/.exec(value.trim()) : null;
+  if (!m) return null;
+  if (allDay) return m[1];
+  return `${m[1]}T${m[2] ?? "09:00"}`;
+}
 
 /** Reads pasted text and/or a screenshot of a chat and returns draft events for review. */
 export async function parseMessage(
@@ -53,7 +43,7 @@ export async function parseMessage(
 
   const response = await client.beta.messages.parse({
     model: "claude-opus-5-5",
-    max_tokens: 16000,
+    max_tokens: 8000,
     output_config: { effort: "low", format: betaZodOutputFormat(ExtractedEvents) },
     betas: ["server-side-fallback-2026-07-01"],
     fallbacks: "default",
@@ -76,17 +66,23 @@ export async function parseMessage(
   });
 
   if (response.stop_reason === "refusal" || !response.parsed_output) {
-    throw new Error("Couldn't read that message. Try trimming it down to the event details.");
+    throw new ParseError("Couldn't read that message. Try trimming it down to the event details.");
   }
 
   const valid = new Set(members.map((m) => m.handle));
-  return {
-    events: response.parsed_output.events.map((e) => ({
+  const events: DraftEvent[] = [];
+  for (const e of response.parsed_output.events) {
+    const start_local = toLocal(e.start_local, e.all_day);
+    if (!start_local) continue;
+    events.push({
       ...e,
-      attendee_handles: [...new Set(e.attendee_handles.map((h) => h.replace(/^@/, "").toLowerCase()))].filter((h) =>
-        valid.has(h),
-      ),
-    })),
-    note: response.parsed_output.note_to_user,
-  };
+      title: e.title.slice(0, 200),
+      start_local,
+      end_local: toLocal(e.end_local, e.all_day),
+      attendee_handles: [...new Set(e.attendee_handles.map((h) => h.replace(/^@/, "").toLowerCase()))]
+        .filter((h) => valid.has(h))
+        .slice(0, MAX_TAGS_PER_EVENT),
+    });
+  }
+  return { events, note: response.parsed_output.note_to_user };
 }

@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/supabase/admin";
+import { addDays } from "date-fns";
+import { safeEqual } from "@/lib/crypto";
+import { listEventsBetween } from "@/lib/events";
 import { fetchBusy } from "@/lib/external";
 import { emailEnabled, sendEmail } from "@/lib/notify";
+import { db, must } from "@/lib/supabase/admin";
 import { formatWhen } from "@/lib/time";
-import type { EventRow } from "@/lib/types";
 
 export const maxDuration = 60;
 
@@ -12,26 +14,26 @@ export const maxDuration = 60;
  * what else the group is doing, and who's busy according to their own calendars.
  */
 export async function GET(req: Request) {
-  if (req.headers.get("authorization") !== `Bearer ${process.env.CRON_SECRET}`) {
+  const secret = process.env.CRON_SECRET;
+  if (!secret) {
+    console.error("CRON_SECRET is not set; refusing to run the digest");
+    return NextResponse.json({ error: "Cron is not configured" }, { status: 500 });
+  }
+  if (!safeEqual(req.headers.get("authorization") ?? "", `Bearer ${secret}`)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   if (!emailEnabled()) return NextResponse.json({ skipped: "email not configured" });
 
-  const client = db();
   const from = new Date();
-  const to = new Date(from.getTime() + 24 * 3600 * 1000);
+  const to = addDays(from, 1);
 
-  const [{ data: members }, { data: rows }] = await Promise.all([
-    client.from("profiles").select("id, display_name, handle, timezone, email, notify_email, external_ics_url"),
-    client
-      .from("events")
-      .select("*, event_attendees(user_id)")
-      .lt("starts_at", to.toISOString())
-      .gt("ends_at", from.toISOString())
-      .order("starts_at"),
+  const [everyone, events] = await Promise.all([
+    db()
+      .from("profiles")
+      .select("id, display_name, handle, timezone, email, notify_email, external_ics_url")
+      .then(must),
+    listEventsBetween(from, to),
   ]);
-  const everyone = members ?? [];
-  const events = (rows ?? []) as (EventRow & { event_attendees: { user_id: string }[] })[];
   const busy = await fetchBusy(everyone, from, to);
 
   let sent = 0;
@@ -44,13 +46,13 @@ export async function GET(req: Request) {
 
     const lines = [
       ...(mine.length ? ["You're in:", ...mine.map((e) => `• ${e.title} — ${formatWhen(e, m.timezone)}`)] : []),
-      ...(others.length ? ["Also in the group:", ...others.map((e) => `• ${e.title} — ${formatWhen(e, m.timezone)}`)] : []),
+      ...(others.length
+        ? ["Also in the group:", ...others.map((e) => `• ${e.title} — ${formatWhen(e, m.timezone)}`)]
+        : []),
       ...(othersBusy.length
         ? [
             "Busy on their own calendars:",
-            ...othersBusy.map(
-              (b) => `• ${b.member.display_name}: ${formatWhen({ ...b, timezone: m.timezone }, m.timezone)}`,
-            ),
+            ...othersBusy.map((b) => `• ${b.member.display_name}: ${formatWhen(b, m.timezone)}`),
           ]
         : []),
     ];

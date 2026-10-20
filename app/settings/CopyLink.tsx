@@ -20,8 +20,12 @@ export function CopyLink({ label, url, webcal }: { label: string; url: string; w
       <label style={{ marginTop: 0 }}>{label}</label>
       <code className="link">{url}</code>
       <div className="row" style={{ marginTop: 8 }}>
-        <button type="button" onClick={copy}>{copied ? "Copied ✓" : "Copy link"}</button>
-        <a className="btn ghost" href={webcal}>Open in Calendar app</a>
+        <button type="button" onClick={() => void copy()}>
+          {copied ? "Copied ✓" : "Copy link"}
+        </button>
+        <a className="btn ghost" href={webcal}>
+          Open in Calendar app
+        </a>
       </div>
     </div>
   );
