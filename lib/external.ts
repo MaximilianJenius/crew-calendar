@@ -19,6 +19,11 @@ export type BusyBlock = {
 const MAX_BYTES = 2 * 1024 * 1024;
 const MAX_REDIRECTS = 3;
 const TIMEOUT_MS = 8000;
+/** Whole-fetch budget across redirects; per-socket timeouts alone reset whenever a byte arrives. */
+const DEADLINE_MS = 10000;
+
+/** node-ical builds a DATE value as midnight in the server's own zone; this keeps the date, at UTC midnight. */
+const asUtcDate = (d: Date) => new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
 
 const text = (v: unknown): string =>
   typeof v === "string" ? v : v && typeof v === "object" && "val" in v ? String(v.val) : "";
@@ -102,11 +107,17 @@ const publicOnlyLookup: LookupFunction = (hostname, options, callback) => {
   });
 };
 
-function getOnce(url: URL): Promise<{ status: number; location?: string; body?: string }> {
+function getOnce(url: URL, signal: AbortSignal): Promise<{ status: number; location?: string; body?: string }> {
   return new Promise((resolve, reject) => {
     const req = request(
       url,
-      { method: "GET", lookup: publicOnlyLookup, timeout: TIMEOUT_MS, headers: { Accept: "text/calendar, */*" } },
+      {
+        method: "GET",
+        lookup: publicOnlyLookup,
+        timeout: TIMEOUT_MS,
+        signal,
+        headers: { Accept: "text/calendar, */*" },
+      },
       (res) => {
         const status = res.statusCode ?? 0;
         if (status >= 300 && status < 400) {
@@ -141,10 +152,11 @@ function getOnce(url: URL): Promise<{ status: number; location?: string; body?: 
 /** Fetches an https URL, re-checking every redirect hop, refusing private addresses and capping the size. */
 export async function fetchPublicText(raw: string): Promise<string | null> {
   let url = raw;
+  const signal = AbortSignal.timeout(DEADLINE_MS);
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
     const safe = normaliseIcsUrl(url);
     if (!safe) return null;
-    const res = await getOnce(new URL(safe));
+    const res = await getOnce(new URL(safe), signal);
     if (res.location !== undefined) {
       url = new URL(res.location, safe).toString();
       continue;
@@ -181,10 +193,13 @@ export async function fetchBusy(
               blocks.push({
                 member: { id: m.id, display_name: m.display_name, handle: m.handle, timezone: m.timezone },
                 title: text(inst.summary) || "Busy",
-                starts_at: new Date(inst.start).toISOString(),
-                ends_at: new Date(inst.end ?? inst.start).toISOString(),
+                starts_at: (inst.isFullDay ? asUtcDate(inst.start) : new Date(inst.start)).toISOString(),
+                ends_at: (inst.isFullDay
+                  ? asUtcDate(inst.end ?? inst.start)
+                  : new Date(inst.end ?? inst.start)
+                ).toISOString(),
                 all_day: inst.isFullDay,
-                // node-ical turns DATE values into UTC midnights; reading them in UTC keeps the right day.
+                // All-day dates are carried as UTC midnights, so reading them in UTC keeps the right day.
                 timezone: "UTC",
               });
             }

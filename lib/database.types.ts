@@ -209,6 +209,10 @@ export type Database = {
         Args: { p_key: string; p_window_seconds: number; p_max: number };
         Returns: boolean;
       };
+      rate_limit_reached: {
+        Args: { p_key: string; p_window_seconds: number; p_max: number };
+        Returns: boolean;
+      };
       join_group: {
         Args: {
           p_id: string;

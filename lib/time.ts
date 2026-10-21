@@ -21,13 +21,28 @@ export function isValidTimeZone(tz: string): boolean {
 
 /** Every IANA timezone this runtime knows, for pickers. */
 export function timeZoneList(): string[] {
-  const zones = Intl.supportedValuesOf("timeZone");
-  return zones.includes("UTC") ? zones : ["UTC", ...zones];
+  // Some runtimes list only older names (Asia/Calcutta, Europe/Kiev) while browsers report the current ones.
+  const extra = ["UTC", "Asia/Kolkata", "Europe/Kyiv", "Asia/Yangon", "Asia/Kathmandu", "America/Nuuk"];
+  return [...new Set([...Intl.supportedValuesOf("timeZone"), ...extra.filter(isValidTimeZone)])].sort();
 }
 
 /** "2026-11-01" + n days, as a date string. Pure calendar math, independent of any timezone. */
 export function shiftDay(day: string, n: number): string {
   return format(addDays(parseISO(day), n), "yyyy-MM-dd");
+}
+
+/**
+ * The first instant of `day` in `tz`. Usually local midnight, but where the clocks jump forward at midnight
+ * (e.g. America/Santiago) midnight doesn't exist, so it's the first time that does.
+ */
+export function startOfLocalDay(day: string, tz: string): Date {
+  for (let minutes = 0; minutes <= 180; minutes += 30) {
+    const hh = String(Math.floor(minutes / 60)).padStart(2, "0");
+    const mm = String(minutes % 60).padStart(2, "0");
+    const instant = fromZonedTime(`${day}T${hh}:${mm}:00`, tz);
+    if (formatInTimeZone(instant, tz, "yyyy-MM-dd") === day) return instant;
+  }
+  return fromZonedTime(`${day}T00:00:00`, tz);
 }
 
 export class DraftError extends Error {}
@@ -53,8 +68,8 @@ export function draftToInstants(
     // Stored end is exclusive: local midnight after the last day. Adding the day to the date string (not
     // 24 hours to the instant) keeps this right on days when the clocks change.
     return {
-      starts_at: fromZonedTime(`${startDay}T00:00:00`, tz),
-      ends_at: fromZonedTime(`${shiftDay(endDay, 1)}T00:00:00`, tz),
+      starts_at: startOfLocalDay(startDay, tz),
+      ends_at: startOfLocalDay(shiftDay(endDay, 1), tz),
     };
   }
   const start = normalise(d.start_local);

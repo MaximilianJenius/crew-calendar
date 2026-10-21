@@ -1,7 +1,7 @@
 import "server-only";
 import { formatInTimeZone } from "date-fns-tz";
 import { appName } from "./config";
-import { decryptSecret, encryptSecret } from "./crypto";
+import { decryptSecret, encryptSecret, isEncrypted } from "./crypto";
 import { db, must } from "./supabase/admin";
 import type { EventRow } from "./types";
 
@@ -77,9 +77,27 @@ export async function saveGoogleToken(userId: string, refreshToken: string, emai
   );
 }
 
+/**
+ * The user's refresh token, or null if they aren't connected. A token that can't be decrypted (the key was
+ * removed or changed) is useless, so it's forgotten. One saved before encryption existed is encrypted now.
+ */
 async function storedRefreshToken(userId: string): Promise<string | null> {
-  const row = must(await db().from("google_tokens").select("refresh_token").eq("user_id", userId).maybeSingle());
-  return row ? decryptSecret(row.refresh_token) : null;
+  const row = must(
+    await db().from("google_tokens").select("refresh_token, google_email").eq("user_id", userId).maybeSingle(),
+  );
+  if (!row) return null;
+  let token: string;
+  try {
+    token = decryptSecret(row.refresh_token);
+  } catch (err) {
+    console.error("stored google token unreadable; disconnecting", err instanceof Error ? err.message : "unknown");
+    must(await db().from("google_tokens").delete().eq("user_id", userId));
+    return null;
+  }
+  if (!isEncrypted(row.refresh_token) && process.env.GOOGLE_TOKEN_KEY) {
+    await saveGoogleToken(userId, token, row.google_email).catch(() => undefined);
+  }
+  return token;
 }
 
 /**

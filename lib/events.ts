@@ -75,15 +75,24 @@ async function fanOut(poster: Profile, event: EventRow, handles: string[]) {
       )
     : [];
 
-  // Google pushes run in parallel; one person's broken connection doesn't stop the rest.
-  const rows = await Promise.all(
-    people.map(async (p) => ({
-      event_id: event.id,
-      user_id: p.id,
-      google_event_id: await pushToGoogle(p.id, event),
-    })),
+  if (!people.length) return;
+  must(await client.from("event_attendees").insert(people.map((p) => ({ event_id: event.id, user_id: p.id }))));
+
+  // Tags are saved first, so every Google copy made below is recorded and can be removed later.
+  // Pushes run in parallel; one person's broken connection doesn't stop the rest.
+  await Promise.all(
+    people.map(async (p) => {
+      const googleEventId = await pushToGoogle(p.id, event);
+      if (!googleEventId) return;
+      must(
+        await client
+          .from("event_attendees")
+          .update({ google_event_id: googleEventId })
+          .eq("event_id", event.id)
+          .eq("user_id", p.id),
+      );
+    }),
   );
-  if (rows.length) must(await client.from("event_attendees").insert(rows));
 
   const others = people.filter((p) => p.id !== poster.id);
   if (!others.length) return;

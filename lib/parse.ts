@@ -77,6 +77,8 @@ export async function parseMessage(
     events.push({
       ...e,
       title: e.title.slice(0, 200),
+      location: e.location?.slice(0, 300) ?? null,
+      notes: e.notes?.slice(0, 4000) ?? null,
       start_local,
       end_local: toLocal(e.end_local, e.all_day),
       attendee_handles: [...new Set(e.attendee_handles.map((h) => h.replace(/^@/, "").toLowerCase()))]

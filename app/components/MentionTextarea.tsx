@@ -70,9 +70,8 @@ export function MentionTextarea({
         value={value}
         maxLength={maxLength}
         placeholder={placeholder}
-        role="combobox"
         aria-autocomplete="list"
-        aria-expanded={open}
+        aria-haspopup="listbox"
         aria-controls={listId}
         aria-activedescendant={open ? optionId(active) : undefined}
         onChange={(e) => {

@@ -97,6 +97,16 @@ begin
 end;
 $$;
 
+-- True if `p_key` already has `p_max` hits in the window. Records nothing.
+create or replace function rate_limit_reached(p_key text, p_window_seconds int, p_max int)
+returns boolean
+language sql
+stable
+as $$
+  select count(*) >= p_max from rate_limit_hits
+  where key = p_key and at >= now() - make_interval(secs => p_window_seconds);
+$$;
+
 -- Adds a member, refusing once the group is full. The lock makes count-then-insert atomic.
 create or replace function join_group(
   p_id uuid, p_display_name text, p_handle text, p_timezone text, p_email text, p_max int
@@ -116,6 +126,13 @@ $$;
 
 -- Only the server (secret key) may call these; the publishable key must not.
 revoke execute on function hit_rate_limit(text, int, int) from public, anon, authenticated;
+revoke execute on function rate_limit_reached(text, int, int) from public, anon, authenticated;
 revoke execute on function join_group(uuid, text, text, text, text, int) from public, anon, authenticated;
 grant execute on function hit_rate_limit(text, int, int) to service_role;
+grant execute on function rate_limit_reached(text, int, int) to service_role;
+
+-- Belt and braces: RLS with no policies already hides every row from the publishable key, but don't rely
+-- on that alone.
+revoke all on profiles, events, event_attendees, notifications, google_tokens, rate_limit_hits
+  from anon, authenticated;
 grant execute on function join_group(uuid, text, text, text, text, int) to service_role;

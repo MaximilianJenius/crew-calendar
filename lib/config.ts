@@ -13,15 +13,13 @@ const ServerEnv = z.object({
   NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: z.string().min(1),
   SUPABASE_SECRET_KEY: z.string().min(1),
   APP_URL: z.url(),
-  GROUP_INVITE_CODE: z.string().min(1),
-  MAX_MEMBERS: z.coerce.number().int().positive().default(10),
-  CRON_SECRET: z.string().min(16).optional(),
-  GOOGLE_TOKEN_KEY: z.string().optional(),
 });
+// GROUP_INVITE_CODE, CRON_SECRET and GOOGLE_TOKEN_KEY are checked by the features that use them, so a
+// problem with one of them switches that feature off instead of taking the whole site down.
 
 let cached: z.infer<typeof ServerEnv> | null = null;
 
-/** Validated server environment. Throws a readable error naming every missing or invalid variable. */
+/** Validated core server environment. Throws a readable error naming every missing or invalid variable. */
 export function serverEnv() {
   if (cached) return cached;
   const parsed = ServerEnv.safeParse(process.env);

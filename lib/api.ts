@@ -13,7 +13,7 @@ export function withMember<Args extends unknown[]>(
       if (!me) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
       return await handler(me, ...args);
     } catch (err) {
-      console.error("api error", err);
+      console.error("api error", err instanceof Error ? err.message : "unknown");
       return NextResponse.json({ error: "Something went wrong on our side. Try again." }, { status: 500 });
     }
   };

@@ -78,7 +78,10 @@ export default async function Home({ searchParams }: PageProps<"/">) {
         </nav>
       </header>
 
-      <Composer me={me} members={members} />
+      <Composer
+        me={{ id: me.id, display_name: me.display_name, handle: me.handle, timezone: me.timezone }}
+        members={members}
+      />
 
       {notices.length > 0 && (
         <section className="card">

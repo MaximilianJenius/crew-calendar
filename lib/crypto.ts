@@ -19,6 +19,8 @@ export function encryptSecret(plain: string): string {
   return PREFIX + Buffer.concat([iv, cipher.getAuthTag(), body]).toString("base64");
 }
 
+export const isEncrypted = (stored: string) => stored.startsWith(PREFIX);
+
 /** Reverses encryptSecret. Values saved before encryption was added are returned as they are. */
 export function decryptSecret(stored: string): string {
   if (!stored.startsWith(PREFIX)) return stored;

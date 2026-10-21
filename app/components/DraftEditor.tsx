@@ -61,7 +61,7 @@ export function DraftEditor({
             id={f("start")}
             type={d.all_day ? "date" : "datetime-local"}
             value={d.start_local}
-            aria-describedby={f("tz")}
+            aria-describedby={d.all_day ? undefined : f("tz")}
             onChange={(e) => onChange({ start_local: e.target.value })}
           />
         </div>
@@ -71,8 +71,8 @@ export function DraftEditor({
             id={f("end")}
             type={d.all_day ? "date" : "datetime-local"}
             value={d.end_local ?? ""}
-            min={d.start_local}
-            aria-describedby={f("tz")}
+            min={d.all_day ? d.start_local : undefined}
+            aria-describedby={d.all_day ? undefined : f("tz")}
             onChange={(e) => onChange({ end_local: e.target.value || null })}
           />
         </div>
