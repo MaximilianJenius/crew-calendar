@@ -1,7 +1,7 @@
 import "server-only";
 import { redirect } from "next/navigation";
 import { createAuthClient } from "./supabase/server";
-import { db } from "./supabase/admin";
+import { db, must } from "./supabase/admin";
 import type { Member, Profile } from "./types";
 
 export async function getAuthUser() {
@@ -10,9 +10,11 @@ export async function getAuthUser() {
   return data.user;
 }
 
+const PROFILE_COLUMNS =
+  "id, display_name, handle, email, timezone, feed_token, group_feed_token, external_ics_url, notify_email";
+
 export async function getProfile(userId: string): Promise<Profile | null> {
-  const { data } = await db().from("profiles").select("*").eq("id", userId).maybeSingle();
-  return data;
+  return must(await db().from("profiles").select(PROFILE_COLUMNS).eq("id", userId).maybeSingle());
 }
 
 /** For pages: signed in and joined, or redirect to the right step. */
@@ -31,9 +33,5 @@ export async function memberOrNull(): Promise<Profile | null> {
 }
 
 export async function listMembers(): Promise<Member[]> {
-  const { data } = await db()
-    .from("profiles")
-    .select("id, display_name, handle, timezone")
-    .order("display_name");
-  return data ?? [];
+  return must(await db().from("profiles").select("id, display_name, handle, timezone").order("display_name"));
 }

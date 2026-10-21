@@ -1,5 +1,7 @@
 import { redirect } from "next/navigation";
 import { getAuthUser, getProfile } from "@/lib/auth";
+import { appName } from "@/lib/config";
+import { timeZoneList } from "@/lib/time";
 import { JoinForm } from "./JoinForm";
 
 export default async function OnboardingPage() {
@@ -10,9 +12,9 @@ export default async function OnboardingPage() {
   return (
     <main className="center">
       <div className="card">
-        <h2>Join {process.env.GROUP_NAME ?? "the group"}</h2>
+        <h2>Join {appName()}</h2>
         <p className="muted">Signed in as {user.email}</p>
-        <JoinForm />
+        <JoinForm zones={timeZoneList()} />
       </div>
     </main>
   );

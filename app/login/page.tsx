@@ -17,27 +17,37 @@ export default function LoginPage() {
     e.preventDefault();
     setBusy(true);
     setError(null);
-    const { error } = await createClient().auth.signInWithOtp({
-      email: email.trim(),
-      options: { shouldCreateUser: true },
-    });
-    setBusy(false);
-    if (error) setError(error.message);
-    else setStep("code");
+    try {
+      const { error } = await createClient().auth.signInWithOtp({
+        email: email.trim(),
+        options: { shouldCreateUser: true },
+      });
+      if (error) setError(error.message);
+      else setStep("code");
+    } catch {
+      setError("Couldn't reach the server. Check your connection and try again.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function verify(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
     setError(null);
-    const { error } = await createClient().auth.verifyOtp({ email: email.trim(), token: code.trim(), type: "email" });
-    setBusy(false);
-    if (error) {
-      setError("That code didn't work. Check it, or send a new one.");
-      return;
+    try {
+      const { error } = await createClient().auth.verifyOtp({ email: email.trim(), token: code.trim(), type: "email" });
+      if (error) {
+        setError("That code didn't work. Check it, or send a new one.");
+        return;
+      }
+      router.replace("/");
+      router.refresh();
+    } catch {
+      setError("Couldn't reach the server. Check your connection and try again.");
+    } finally {
+      setBusy(false);
     }
-    router.replace("/");
-    router.refresh();
   }
 
   return (
@@ -45,7 +55,7 @@ export default function LoginPage() {
       <div className="card">
         <h2>Sign in</h2>
         {step === "email" ? (
-          <form onSubmit={sendCode}>
+          <form onSubmit={(e) => void sendCode(e)}>
             <label htmlFor="email">Email</label>
             <input
               id="email"
@@ -61,7 +71,7 @@ export default function LoginPage() {
             </button>
           </form>
         ) : (
-          <form onSubmit={verify}>
+          <form onSubmit={(e) => void verify(e)}>
             <p className="muted">
               Code sent to <strong>{email}</strong>. Check spam if you don&apos;t see it.
             </p>
@@ -87,7 +97,7 @@ export default function LoginPage() {
             </div>
           </form>
         )}
-        {error && <p className="error">{error}</p>}
+        <div role="alert">{error && <p className="error">{error}</p>}</div>
       </div>
     </main>
   );

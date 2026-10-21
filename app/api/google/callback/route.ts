@@ -1,7 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { memberOrNull } from "@/lib/auth";
-import { exchangeCode } from "@/lib/google";
-import { db } from "@/lib/supabase/admin";
+import { exchangeCode, saveGoogleToken } from "@/lib/google";
 
 export async function GET(req: NextRequest) {
   const me = await memberOrNull();
@@ -21,15 +20,10 @@ export async function GET(req: NextRequest) {
   try {
     const { refreshToken, email } = await exchangeCode(code);
     if (!refreshToken) return done("error");
-    await db().from("google_tokens").upsert({
-      user_id: me.id,
-      refresh_token: refreshToken,
-      google_email: email,
-      updated_at: new Date().toISOString(),
-    });
+    await saveGoogleToken(me.id, refreshToken, email);
     return done("connected");
   } catch (err) {
-    console.error("google callback failed", err);
+    console.error("google callback failed", err instanceof Error ? err.message : "unknown");
     return done("error");
   }
 }

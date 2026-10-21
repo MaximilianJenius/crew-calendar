@@ -2,23 +2,42 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { postJson } from "@/lib/http";
 
 export function DeleteEvent({ id, title }: { id: string; title: string }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   async function remove() {
-    if (!confirm(`Delete "${title}" from everyone's calendar?`)) return;
+    if (!confirm(`Delete "${title}" from everyone's calendar? This can't be undone.`)) return;
     setBusy(true);
-    const res = await fetch(`/api/events/${id}`, { method: "DELETE" });
-    setBusy(false);
-    if (!res.ok) alert((await res.json()).error ?? "Couldn't delete");
-    router.refresh();
+    setError(null);
+    try {
+      await postJson(`/api/events/${id}`, undefined, "DELETE");
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't delete");
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
-    <button className="link" onClick={remove} disabled={busy} style={{ color: "var(--danger)", fontSize: 14 }}>
-      {busy ? "Deleting…" : "Delete"}
-    </button>
+    <span>
+      <button
+        className="link"
+        onClick={() => void remove()}
+        disabled={busy}
+        style={{ color: "var(--danger)", fontSize: 14 }}
+      >
+        {busy ? "Deleting…" : "Delete"}
+      </button>
+      {error && (
+        <span role="alert" className="error" style={{ display: "block" }}>
+          {error}
+        </span>
+      )}
+    </span>
   );
 }
